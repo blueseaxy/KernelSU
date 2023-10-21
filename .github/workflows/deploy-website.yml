@@ -30,8 +30,8 @@ jobs:
         run: yarn docs:build
 
       - name: Deploy
-        uses: peaceiris/actions-gh-pages@v3
+        uses: peaceiris/actions-gh-pages@v3.9.3
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+          github_token: ${{ secrets.TOKEN }}
           publish_dir: website/docs/.vitepress/dist
           cname: kernelsu.org # if wanna deploy to custom domain
