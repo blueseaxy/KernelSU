@@ -21,4 +21,11 @@ config KSU_SAFE_MODE
 	help
 	This enables KernelSU Safe Mode.
 
+config KSU_MODULE
+	bool "Build KernelSU as a module"
+	depends on KSU
+	default n
+	help
+	Build KernelSU as a loadable kernel module
+
 endmenu

@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.Block
@@ -34,6 +35,7 @@ import kotlinx.coroutines.withContext
 import me.weishu.kernelsu.*
 import me.weishu.kernelsu.R
 import me.weishu.kernelsu.ui.component.rememberConfirmDialog
+import me.weishu.kernelsu.ui.screen.destinations.InstallScreenDestination
 import me.weishu.kernelsu.ui.screen.destinations.SettingScreenDestination
 import me.weishu.kernelsu.ui.util.*
 
@@ -41,9 +43,13 @@ import me.weishu.kernelsu.ui.util.*
 @Destination
 @Composable
 fun HomeScreen(navigator: DestinationsNavigator) {
+    val kernelVersion = getKernelVersion()
+
     Scaffold(topBar = {
-        TopBar(onSettingsClick = {
+        TopBar(kernelVersion, onSettingsClick = {
             navigator.navigate(SettingScreenDestination)
+        }, onInstallClick = {
+            navigator.navigate(InstallScreenDestination)
         })
     }) { innerPadding ->
         Column(
@@ -53,14 +59,15 @@ fun HomeScreen(navigator: DestinationsNavigator) {
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            val kernelVersion = getKernelVersion()
             val isManager = Natives.becomeManager(ksuApp.packageName)
             SideEffect {
                 if (isManager) install()
             }
             val ksuVersion = if (isManager) Natives.version else null
 
-            StatusCard(kernelVersion, ksuVersion)
+            StatusCard(kernelVersion, ksuVersion) {
+                navigator.navigate(InstallScreenDestination)
+            }
             if (isManager && Natives.requireNewKernel()) {
                 WarningCard(
                     stringResource(id = R.string.require_kernel_version).format(
@@ -68,7 +75,7 @@ fun HomeScreen(navigator: DestinationsNavigator) {
                     )
                 )
             }
-            if (!rootAvailable()) {
+            if (ksuVersion != null && !rootAvailable()) {
                 WarningCard(
                     stringResource(id = R.string.grant_root_failed)
                 )
@@ -103,7 +110,7 @@ fun UpdateCard() {
     val updateText = stringResource(id = R.string.module_update)
 
     AnimatedVisibility(
-        visible = newVersionCode >= currentVersionCode,
+        visible = newVersionCode > currentVersionCode,
         enter = fadeIn() + expandVertically(),
         exit = shrinkVertically() + fadeOut()
     ) {
@@ -135,8 +142,17 @@ fun RebootDropdownItem(@StringRes id: Int, reason: String = "") {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun TopBar(onSettingsClick: () -> Unit) {
+private fun TopBar(kernelVersion: KernelVersion, onInstallClick: () -> Unit, onSettingsClick: () -> Unit) {
     TopAppBar(title = { Text(stringResource(R.string.app_name)) }, actions = {
+        if (kernelVersion.isGKI()) {
+            IconButton(onClick = onInstallClick) {
+                Icon(
+                    imageVector = Icons.Filled.Archive,
+                    contentDescription = stringResource(id = R.string.install)
+                )
+            }
+        }
+
         var showDropdown by remember { mutableStateOf(false) }
         IconButton(onClick = {
             showDropdown = true
@@ -174,7 +190,7 @@ private fun TopBar(onSettingsClick: () -> Unit) {
 }
 
 @Composable
-private fun StatusCard(kernelVersion: KernelVersion, ksuVersion: Int?) {
+private fun StatusCard(kernelVersion: KernelVersion, ksuVersion: Int?, onClickInstall: () -> Unit = {}) {
     ElevatedCard(
         colors = CardDefaults.elevatedCardColors(containerColor = run {
             if (ksuVersion != null) MaterialTheme.colorScheme.secondaryContainer
@@ -185,8 +201,8 @@ private fun StatusCard(kernelVersion: KernelVersion, ksuVersion: Int?) {
         Row(modifier = Modifier
             .fillMaxWidth()
             .clickable {
-                if (kernelVersion.isGKI() && ksuVersion == null) {
-                    uriHandler.openUri("https://kernelsu.org/guide/installation.html")
+                if (kernelVersion.isGKI()) {
+                    onClickInstall()
                 }
             }
             .padding(24.dp), verticalAlignment = Alignment.CenterVertically) {
