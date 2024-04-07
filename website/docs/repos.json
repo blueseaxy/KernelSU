@@ -548,8 +548,8 @@
     {
         "maintainer": "rsuntk",
         "maintainer_link": "https://github.com/rsuntk",
-        "kernel_name": "android_kernel_samsung_a12s-4.19-rebased",
-        "kernel_link": "https://github.com/rsuntk/android_kernel_samsung_a12s-4.19-rebased",
+        "kernel_name": "android_kernel_samsung_a12s",
+        "kernel_link": "https://github.com/rsuntk/android_kernel_samsung_a12s",
         "devices": "Samsung Galaxy A12s (Nacho) | Exynos 850"
     },
     {
@@ -621,5 +621,26 @@
         "kernel_name": "android_kernel_samsung_gta4xl",
         "kernel_link": "https://github.com/Fede2782/android_kernel_samsung_gta4xl",
         "devices": "Galaxy Tab S6 Lite LTE (gta4xl)"
+    },
+    {
+        "maintainer": "rsuntk",
+        "maintainer_link": "https://github.com/rsuntk",
+        "kernel_name": "android_kernel_samsung_a03",
+        "kernel_link": "https://github.com/rsuntk/android_kernel_samsung_a03",
+        "devices": "Samsung Galaxy A03 | Unisoc T606 | Scorpio Kernel"
+    },
+    {
+        "maintainer": "ArchVisions",
+        "maintainer_link": "https://github.com/ArchVisions",
+        "kernel_name": "android_kernel_samsung_gts9fewifi",
+        "kernel_link": "https://github.com/ArchVisions/android_kernel_samsung_gts9fewifi",
+        "devices": "Samsung Tab S9 FE (gts9fewifi) | Exynos 1380"
+    },
+    {
+        "maintainer": "ravindu644",
+        "maintainer_link": "https://github.com/ravindu644",
+        "kernel_name": "android_kernel_beyondx_lpos",
+        "kernel_link": "https://github.com/ravindu644/android_kernel_beyondx_lpos",
+        "devices": "Galaxy S10 5G (KOR)"
     }
 ]

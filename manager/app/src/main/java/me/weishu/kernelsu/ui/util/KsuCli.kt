@@ -3,12 +3,16 @@ package me.weishu.kernelsu.ui.util
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
+import android.os.Parcelable
 import android.os.SystemClock
 import android.util.Log
 import com.topjohnwu.superuser.CallbackList
 import com.topjohnwu.superuser.Shell
 import com.topjohnwu.superuser.ShellUtils
 import com.topjohnwu.superuser.io.SuFile
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.parcelize.Parcelize
 import me.weishu.kernelsu.BuildConfig
 import me.weishu.kernelsu.Natives
 import me.weishu.kernelsu.ksuApp
@@ -52,14 +56,14 @@ fun createRootShell(globalMnt: Boolean = false): Shell {
     }
 }
 
-fun execKsud(args: String): Boolean {
-    val shell = getRootShell()
+fun execKsud(args: String, newShell: Boolean = false): Boolean {
+    val shell = if (newShell) createRootShell() else getRootShell()
     return ShellUtils.fastCmdResult(shell, "${getKsuDaemonPath()} $args")
 }
 
 fun install() {
     val start = SystemClock.elapsedRealtime()
-    val result = execKsud("install")
+    val result = execKsud("install", true)
     Log.w(TAG, "install result: $result, cost: ${SystemClock.elapsedRealtime() - start}ms")
 }
 
@@ -89,23 +93,20 @@ fun toggleModule(id: String, enable: Boolean): Boolean {
     } else {
         "module disable $id"
     }
-    val result = execKsud(cmd)
+    val result = execKsud(cmd, true)
     Log.i(TAG, "$cmd result: $result")
     return result
 }
 
 fun uninstallModule(id: String): Boolean {
     val cmd = "module uninstall $id"
-    val result = execKsud(cmd)
+    val result = execKsud(cmd, true)
     Log.i(TAG, "uninstall module $id result: $result")
     return result
 }
 
 fun installModule(
-    uri: Uri,
-    onFinish: (Boolean) -> Unit,
-    onStdout: (String) -> Unit,
-    onStderr: (String) -> Unit
+    uri: Uri, onFinish: (Boolean) -> Unit, onStdout: (String) -> Unit, onStderr: (String) -> Unit
 ): Boolean {
     val resolver = ksuApp.contentResolver
     with(resolver.openInputStream(uri)) {
@@ -141,9 +142,20 @@ fun installModule(
     }
 }
 
+suspend fun shrinkModules(): Boolean = withContext(Dispatchers.IO) {
+    execKsud("module shrink", true)
+}
+
+@Parcelize
+sealed class LkmSelection : Parcelable {
+    data class LkmUri(val uri: Uri) : LkmSelection()
+    data class KmiString(val value: String) : LkmSelection()
+    data object KmiNone : LkmSelection()
+}
+
 fun installBoot(
     bootUri: Uri?,
-    lkmUri: Uri?,
+    lkm: LkmSelection,
     ota: Boolean,
     onFinish: (Boolean) -> Unit,
     onStdout: (String) -> Unit,
@@ -162,17 +174,6 @@ fun installBoot(
         }
     }
 
-    val lkmFile = lkmUri?.let { uri ->
-        with(resolver.openInputStream(uri)) {
-            val lkmFile = File(ksuApp.cacheDir, "kernelsu-tmp-lkm.ko")
-            lkmFile.outputStream().use { output ->
-                this?.copyTo(output)
-            }
-
-            lkmFile
-        }
-    }
-
     val magiskboot = File(ksuApp.applicationInfo.nativeLibraryDir, "libmagiskboot.so")
     var cmd = "boot-patch --magiskboot ${magiskboot.absolutePath}"
 
@@ -187,8 +188,27 @@ fun installBoot(
         cmd += " -u"
     }
 
-    lkmFile?.let {
-        cmd += " -m ${it.absolutePath}"
+    var lkmFile: File? = null
+    when (lkm) {
+        is LkmSelection.LkmUri -> {
+            lkmFile = with(resolver.openInputStream(lkm.uri)) {
+                val file = File(ksuApp.cacheDir, "kernelsu-tmp-lkm.ko")
+                file.outputStream().use { output ->
+                    this?.copyTo(output)
+                }
+
+                file
+            }
+            cmd += " -m ${lkmFile.absolutePath}"
+        }
+
+        is LkmSelection.KmiString -> {
+            cmd += " --kmi ${lkm.value}"
+        }
+
+        LkmSelection.KmiNone -> {
+            // do nothing
+        }
     }
 
     // output dir
@@ -211,8 +231,7 @@ fun installBoot(
     }
 
     val result =
-        shell.newJob().add("${getKsuDaemonPath()} $cmd").to(stdoutCallback, stderrCallback)
-            .exec()
+        shell.newJob().add("${getKsuDaemonPath()} $cmd").to(stdoutCallback, stderrCallback).exec()
     Log.i("KernelSU", "install boot result: ${result.isSuccess}")
 
     bootFile?.delete()
@@ -257,6 +276,19 @@ fun isInitBoot(): Boolean {
         .toInt() >= Build.VERSION_CODES.TIRAMISU
 }
 
+suspend fun getCurrentKmi(): String = withContext(Dispatchers.IO) {
+    val shell = getRootShell()
+    val cmd = "boot-info current-kmi"
+    ShellUtils.fastCmd(shell, "${getKsuDaemonPath()} $cmd")
+}
+
+suspend fun getSupportedKmis(): List<String> = withContext(Dispatchers.IO) {
+    val shell = getRootShell()
+    val cmd = "boot-info supported-kmi"
+    val out = shell.newJob().add("${getKsuDaemonPath()} $cmd").to(ArrayList(), null).exec().out
+    out.filter { it.isNotBlank() }.map { it.trim() }
+}
+
 fun overlayFsAvailable(): Boolean {
     val shell = getRootShell()
     // check /proc/filesystems
@@ -292,9 +324,8 @@ fun getSepolicy(pkg: String): String {
 
 fun setSepolicy(pkg: String, rules: String): Boolean {
     val shell = getRootShell()
-    val result =
-        shell.newJob().add("${getKsuDaemonPath()} profile set-sepolicy $pkg '$rules'")
-            .to(ArrayList(), null).exec()
+    val result = shell.newJob().add("${getKsuDaemonPath()} profile set-sepolicy $pkg '$rules'")
+        .to(ArrayList(), null).exec()
     Log.i(TAG, "set sepolicy result: ${result.code}")
     return result.isSuccess
 }
@@ -308,22 +339,21 @@ fun listAppProfileTemplates(): List<String> {
 fun getAppProfileTemplate(id: String): String {
     val shell = getRootShell()
     return shell.newJob().add("${getKsuDaemonPath()} profile get-template '${id}'")
-        .to(ArrayList(), null)
-        .exec().out.joinToString("\n")
+        .to(ArrayList(), null).exec().out.joinToString("\n")
 }
 
 fun setAppProfileTemplate(id: String, template: String): Boolean {
     val shell = getRootShell()
-    return shell.newJob().add("${getKsuDaemonPath()} profile set-template '${id}' '${template}'")
-        .to(ArrayList(), null)
-        .exec().isSuccess
+    val escapedTemplate = template.replace("\"", "\\\"")
+    val cmd = """${getKsuDaemonPath()} profile set-template "$id" "$escapedTemplate'""""
+    return shell.newJob().add(cmd)
+        .to(ArrayList(), null).exec().isSuccess
 }
 
 fun deleteAppProfileTemplate(id: String): Boolean {
     val shell = getRootShell()
     return shell.newJob().add("${getKsuDaemonPath()} profile delete-template '${id}'")
-        .to(ArrayList(), null)
-        .exec().isSuccess
+        .to(ArrayList(), null).exec().isSuccess
 }
 
 fun forceStopApp(packageName: String) {
